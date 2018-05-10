@@ -6,7 +6,6 @@ using BTBaseServices;
 using BTBaseServices.DAL;
 using BTBaseServices.Models;
 using BTBaseServices.Services;
-using JwtUtils;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -30,10 +29,12 @@ namespace BTBaseAuth
         }
 
         public IConfiguration Configuration { get; }
+        public IServiceCollection ServiceCollection { get; private set; }
 
         // This method gets called by the runtime. Use this method to add services to the container.
-        public void ConfigureServices(IApplicationBuilder app, IServiceCollection services)
+        public void ConfigureServices(IServiceCollection services)
         {
+            this.ServiceCollection = services;
             services.AddMvc(ac => { })
             .AddJsonOptions(op =>
             {
@@ -47,11 +48,7 @@ namespace BTBaseAuth
             {
                 builder.UseMySQL(Environment.GetEnvironmentVariable("MYSQL_CONSTR"));
             });
-
-            AddAuthentication(app, services);
         }
-
-
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)
@@ -60,8 +57,9 @@ namespace BTBaseAuth
             {
                 app.UseDeveloperExceptionPage();
             }
-            TryConnectDB(app);
             app.UseMvc();
+            TryConnectDB(app);
+            AddAuthentication(app, this.ServiceCollection);
         }
 
         private void TryConnectDB(IApplicationBuilder app)
@@ -83,40 +81,46 @@ namespace BTBaseAuth
 
         private void AddAuthentication(IApplicationBuilder app, IServiceCollection services)
         {
-            BTWebServerAuthKey authKey;
-            var securityKey = GetAuthenticationKey(app.ApplicationServices, out authKey);
+            var securityKey = GetIssuerSigningKey(app.ApplicationServices);
             services.AddAuthentication().AddJwtBearer(jwtOptions =>
             {
                 jwtOptions.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = securityKey,
-                    ValidateAudience = false, // All audience clients can access this auth server
+                    ValidateAudience = true,
+                    ValidAudience = SERVER_NAME,
                     ValidateIssuer = true,
-                    ValidIssuer = SERVER_NAME,
+                    ValidIssuer = VALID_ISSUER,
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(5)
                 };
             });
         }
 
-        private SecurityKey GetAuthenticationKey(IServiceProvider serviceProvider, out BTWebServerAuthKey authKey)
+        private SecurityKey GetIssuerSigningKey(IServiceProvider serviceProvider)
         {
             using (var sc = serviceProvider.CreateScope())
             {
                 var dbContext = sc.ServiceProvider.GetService<BTBaseDbContext>();
+                SecurityKeychain signingKey;
                 try
                 {
-                    authKey = dbContext.BTWebServerAuthKey.First(x => x.ServerName == SERVER_NAME);
-                    return ServerAuthKeyUtils.ConvertToKey<SecurityKey>(authKey);
+                    signingKey = dbContext.SecurityKeychain.First(x => x.Name == SERVER_NAME);
                 }
                 catch (System.InvalidOperationException)
                 {
-                    var skey = ServerAuthKeyUtils.CreateNewSecurityKey<SecurityKey>(ServerAuthKeyUtils.ALGORITHM_RSA);
-                    var res = dbContext.BTWebServerAuthKey.Add(ServerAuthKeyUtils.GenerateAuthKey(SERVER_NAME, skey));
-                    authKey = res.Entity;
-                    return skey;
+                    signingKey = new SecurityKeychain
+                    {
+                        Name = SERVER_NAME,
+                        Note = "Use for issuer signing of BTBaseAuth"
+                    };
+                    signingKey.ResetNewRSAKeys();
+                    var res = dbContext.SecurityKeychain.Add(signingKey);
+                    signingKey = res.Entity;
+                    dbContext.SaveChanges();
                 }
+                return new RsaSecurityKey(signingKey.ReadRSAParameters(false));
             }
         }
     }

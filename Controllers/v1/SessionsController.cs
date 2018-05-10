@@ -8,10 +8,10 @@ using System.Threading.Tasks;
 using BTBaseServices.DAL;
 using BTBaseServices.Models;
 using BTBaseServices.Services;
-using JwtUtils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using BTBaseServices;
 
 namespace BTBaseAuth.Controllers.v1
 {
@@ -155,9 +155,9 @@ namespace BTBaseAuth.Controllers.v1
 
         private string CreateToken(string deviceId, string audience, string clientId, string accountId, string session, DateTime expireDate)
         {
-            var authKey = dbContext.BTWebServerAuthKey.First(x => x.ServerName == audience);
-
-            var secretKey = BTBaseServices.ServerAuthKeyUtils.ConvertToKey<SecurityKey>(authKey);
+            var signingKey = dbContext.SecurityKeychain.First(x => x.Name == audience);
+            
+            var secretKey = new RsaSecurityKey(signingKey.ReadRSAParameters(true));
 
             var claims = new Claim[]
             {
