@@ -14,6 +14,11 @@ namespace BTBaseAuth.Controllers
             return controller.Request.Headers["devId"];
         }
 
+        public static string GetHeaderClientId(this Controller controller)
+        {
+            return controller.Request.Headers["clientId"];
+        }
+
         public static string GetHeaderSession(this Controller controller)
         {
             return controller.Request.Headers["session"];

@@ -22,14 +22,15 @@ namespace BTBaseAuth
     {
         public static readonly string SERVER_NAME = "BTBaseAuth";
         public static readonly string VALID_ISSUER = "BTBaseAuth";
+        public IConfiguration Configuration { get; private set; }
+        public IServiceCollection ServiceCollection { get; private set; }
+        public IApplicationBuilder ApplicationBuilder { get; set; }
 
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
         }
 
-        public IConfiguration Configuration { get; }
-        public IServiceCollection ServiceCollection { get; private set; }
 
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
@@ -48,23 +49,25 @@ namespace BTBaseAuth
             {
                 builder.UseMySQL(Environment.GetEnvironmentVariable("MYSQL_CONSTR"));
             });
+            AddAuthentication(services);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)
         {
+            ApplicationBuilder = app;
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
             }
+            TryConnectDB();
+            app.UseAuthentication();
             app.UseMvc();
-            TryConnectDB(app);
-            AddAuthentication(app, this.ServiceCollection);
         }
 
-        private void TryConnectDB(IApplicationBuilder app)
+        private void TryConnectDB()
         {
-            using (var sc = app.ApplicationServices.CreateScope())
+            using (var sc = ApplicationBuilder.ApplicationServices.CreateScope())
             {
                 try
                 {
@@ -79,16 +82,17 @@ namespace BTBaseAuth
             }
         }
 
-        private void AddAuthentication(IApplicationBuilder app, IServiceCollection services)
+        private void AddAuthentication(IServiceCollection services)
         {
-            var securityKey = GetIssuerSigningKey(app.ApplicationServices);
-            services.AddAuthentication().AddJwtBearer(jwtOptions =>
+            services.AddAuthentication("Bearer").AddJwtBearer(jwtOptions =>
             {
+                var securityKey = GetIssuerSigningKey(ApplicationBuilder.ApplicationServices);
+                //var securityKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("a secret that needs to be at least 16 characters long"));
                 jwtOptions.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = securityKey,
-                    ValidateAudience = true,
+                    ValidateAudience = false, // All api service clients allow access
                     ValidAudience = SERVER_NAME,
                     ValidateIssuer = true,
                     ValidIssuer = VALID_ISSUER,
@@ -120,7 +124,7 @@ namespace BTBaseAuth
                     signingKey = res.Entity;
                     dbContext.SaveChanges();
                 }
-                return new RsaSecurityKey(signingKey.ReadRSAParameters(false));
+                return new RsaSecurityKey(signingKey.ReadRSAParameters(true));
             }
         }
     }

@@ -57,7 +57,7 @@ namespace BTBaseAuth.Controllers.v1
         }
 
         [HttpPost]
-        public object Login(string userstring, string password, string audience, string clientId)
+        public object Login(string userstring, string password, string audience)
         {
 
             var account = accountService.ValidateProfile(dbContext, userstring, password);
@@ -69,32 +69,33 @@ namespace BTBaseAuth.Controllers.v1
                 {
                     session = sessionService.NewSession(dbContext, new BTDeviceSession
                     {
-                        DeviceId = this.GetHeaderDeviceId(),
                         AccountId = account.AccountId,
+                        DeviceId = this.GetHeaderDeviceId(),
                         DeviceName = this.GetHeaderDeviceName()
                     });
                 }
                 var logoutDevices = sessionService.InvalidSessionAccountLimited(dbContext, account.AccountId, 5);
                 try
                 {
-                    var token = CreateToken(session.DeviceId, audience, clientId, account.AccountId, session.SessionKey, DateTime.Now.AddDays(TOKEN_EXPIRED_DAYS));
+                    var token = CreateToken(session.DeviceId, audience, this.GetHeaderClientId(), account.AccountId, session.SessionKey, DateTime.Now.AddDays(TOKEN_EXPIRED_DAYS));
                     return new ApiResult
                     {
                         code = this.SetResponseOK(),
                         content = new
                         {
                             AccountId = account.AccountId,
+                            Session = session.SessionKey,
                             Token = token,
                             KickedDevices = logoutDevices
                         }
                     };
                 }
-                catch (System.Exception)
+                catch (System.Exception ex)
                 {
                     return new ApiResult
                     {
                         code = this.SetResponseStatusCode(400),
-                        content = new ErrorResult { error = "No Audience Server", errorCode = 400 }
+                        error = new ErrorResult { msg = ex.Message, code = 400 }
                     };
                 }
             }
@@ -130,12 +131,12 @@ namespace BTBaseAuth.Controllers.v1
                     }
                 };
             }
-            catch (System.Exception)
+            catch (System.Exception ex)
             {
                 return new ApiResult
                 {
                     code = this.SetResponseForbidden(),
-                    content = new ErrorResult { errorCode = 404, error = "Miss Claims" }
+                    error = new ErrorResult { code = 404, msg = ex.Message }
                 };
             }
         }
@@ -155,27 +156,44 @@ namespace BTBaseAuth.Controllers.v1
 
         private string CreateToken(string deviceId, string audience, string clientId, string accountId, string session, DateTime expireDate)
         {
-            var signingKey = dbContext.SecurityKeychain.First(x => x.Name == audience);
-            
-            var secretKey = new RsaSecurityKey(signingKey.ReadRSAParameters(true));
-
-            var claims = new Claim[]
+            SecurityKeychain signingKey;
+            try
             {
-                new Claim(ClaimTypes.NameIdentifier, accountId),
-                new Claim(BTBaseServices.JWTClaimNames.DeviceIdentifier, deviceId),
-                new Claim(BTBaseServices.JWTClaimNames.ClientUniqueId,clientId),
-                new Claim(JwtRegisteredClaimNames.Aud, audience),
-                new Claim(JwtRegisteredClaimNames.Sid, session),
-                new Claim(JwtRegisteredClaimNames.Exp, $"{new DateTimeOffset(expireDate).ToUnixTimeSeconds()}"),
-                new Claim(JwtRegisteredClaimNames.Nbf, $"{new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds()}")
-            };
+                signingKey = dbContext.SecurityKeychain.First(x => x.Name == Startup.SERVER_NAME);
+            }
+            catch (System.Exception)
+            {
+                throw new Exception("No Audience Service");
+            }
+
+            var secretKey = new RsaSecurityKey(signingKey.ReadRSAParameters(true));
+            //var secretKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("a secret that needs to be at least 16 characters long"));
+            var notBefore = DateTime.Now;
+            var claims = new List<Claim>();
+            try
+            {
+                var claimsArr = new Claim[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, accountId),
+                    new Claim(BTBaseServices.JWTClaimNames.DeviceIdentifier, deviceId),
+                    new Claim(BTBaseServices.JWTClaimNames.ClientUniqueId,clientId),
+                    new Claim(JwtRegisteredClaimNames.Aud, audience),
+                    new Claim(JwtRegisteredClaimNames.Sid, session)
+                };
+                claims.AddRange(claims);
+            }
+            catch (System.Exception)
+            {
+                throw new Exception("Token Claim Parameters Error");
+            }
 
             var token = new JwtSecurityToken(
                 issuer: Startup.VALID_ISSUER,
                 audience: audience,
                 claims: claims,
-                notBefore: DateTime.Now,
+                notBefore: notBefore,
                 expires: expireDate,
+                //signingCredentials: new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256)
                 signingCredentials: new SigningCredentials(secretKey, SecurityAlgorithms.RsaSha256Signature)
             );
 
