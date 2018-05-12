@@ -20,8 +20,12 @@ namespace BTBaseAuth
 {
     public class Startup
     {
-        public static readonly string SERVER_NAME = "BTBaseAuth";
-        public static readonly string VALID_ISSUER = "BTBaseAuth";
+        public static readonly string AppName = "BTBaseAuth";
+        public static readonly string ValidIssuer = "BTBaseAuth";
+        public static string GetAuthKeyName(string audience) => $"auth_key_{audience.ToLower()}";
+        public static readonly string AppAuthKeyName = GetAuthKeyName(AppName);
+
+
         public IConfiguration Configuration { get; private set; }
         public IServiceCollection ServiceCollection { get; private set; }
         public IApplicationBuilder ApplicationBuilder { get; set; }
@@ -87,15 +91,14 @@ namespace BTBaseAuth
             services.AddAuthentication("Bearer").AddJwtBearer(jwtOptions =>
             {
                 var securityKey = GetIssuerSigningKey(ApplicationBuilder.ApplicationServices);
-                //var securityKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("a secret that needs to be at least 16 characters long"));
                 jwtOptions.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = securityKey,
-                    ValidateAudience = false, // All api service clients allow access
-                    ValidAudience = SERVER_NAME,
+                    ValidateAudience = true,
+                    ValidAudience = AppName,
                     ValidateIssuer = true,
-                    ValidIssuer = VALID_ISSUER,
+                    ValidIssuer = ValidIssuer,
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(5)
                 };
@@ -110,21 +113,17 @@ namespace BTBaseAuth
                 SecurityKeychain signingKey;
                 try
                 {
-                    signingKey = dbContext.SecurityKeychain.First(x => x.Name == SERVER_NAME);
+                    signingKey = dbContext.SecurityKeychain.First(x => x.Name == AppAuthKeyName);
                 }
                 catch (System.InvalidOperationException)
                 {
-                    signingKey = new SecurityKeychain
-                    {
-                        Name = SERVER_NAME,
-                        Note = "Use for issuer signing of BTBaseAuth"
-                    };
-                    signingKey.ResetNewRSAKeys();
+                    var note = $"Authentication key for the audience service:{AppName}";
+                    signingKey = SecurityKeychainProvider.Create(AppAuthKeyName, SecurityKeychainSymmetricsExtensions.ALGORITHM_SYMMETRIC, note);
                     var res = dbContext.SecurityKeychain.Add(signingKey);
                     signingKey = res.Entity;
                     dbContext.SaveChanges();
                 }
-                return new RsaSecurityKey(signingKey.ReadRSAParameters(true));
+                return signingKey.GetSecurityKeys(false);
             }
         }
     }

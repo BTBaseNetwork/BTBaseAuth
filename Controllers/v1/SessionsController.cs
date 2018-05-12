@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
-using System.Security.Principal;
 using System.Threading.Tasks;
 using BTBaseServices.DAL;
 using BTBaseServices.Models;
@@ -12,6 +11,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using BTBaseServices;
+using System.Security.Principal;
 
 namespace BTBaseAuth.Controllers.v1
 {
@@ -21,7 +21,8 @@ namespace BTBaseAuth.Controllers.v1
         private readonly BTBaseDbContext dbContext;
         private readonly SessionService sessionService;
         private readonly AccountService accountService;
-        private readonly double TOKEN_EXPIRED_DAYS = 60;
+        private readonly double SESSION_TOKEN_EXPIRED_DAYS = 60;
+        private readonly double AUDIENCE_TOKEN_EXPIRED_DAYS = 7;
 
         public SessionsController(BTBaseDbContext dbContext, SessionService sessionService, AccountService accountService)
         {
@@ -77,7 +78,8 @@ namespace BTBaseAuth.Controllers.v1
                 var logoutDevices = sessionService.InvalidSessionAccountLimited(dbContext, account.AccountId, 5);
                 try
                 {
-                    var token = CreateToken(session.DeviceId, audience, this.GetHeaderClientId(), account.AccountId, session.SessionKey, DateTime.Now.AddDays(TOKEN_EXPIRED_DAYS));
+                    var sessionToken = CreateToken(Startup.ValidIssuer, Startup.AppName, DateTime.Now.AddDays(SESSION_TOKEN_EXPIRED_DAYS));
+                    var audienceToken = CreateToken(Startup.ValidIssuer, audience, DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS));
                     return new ApiResult
                     {
                         code = this.SetResponseOK(),
@@ -85,7 +87,8 @@ namespace BTBaseAuth.Controllers.v1
                         {
                             AccountId = account.AccountId,
                             Session = session.SessionKey,
-                            Token = token,
+                            Token = audienceToken,
+                            SessionToken = sessionToken,
                             KickedDevices = logoutDevices
                         }
                     };
@@ -110,23 +113,26 @@ namespace BTBaseAuth.Controllers.v1
         }
 
         [Authorize]
-        [HttpGet("RefreshedToken")]
-        public object RefreshToken()
+        [HttpPost("RefreshingToken")]
+        public object RefreshToken(string audience)
         {
             try
             {
-                var audience = Request.HttpContext.User.Claims.First(c => c.Type == JwtRegisteredClaimNames.Aud).Value;
-                var session = Request.HttpContext.User.Claims.First(c => c.Type == JwtRegisteredClaimNames.Sid).Value;
-                var accountId = Request.HttpContext.User.Claims.First(c => c.Type == ClaimTypes.NameIdentifier).Value;
-                var clientId = Request.HttpContext.User.Claims.First(c => c.Type == BTBaseServices.JWTClaimNames.ClientUniqueId).Value;
-                var deviceId = Request.HttpContext.User.Claims.First(c => c.Type == BTBaseServices.JWTClaimNames.DeviceIdentifier).Value;
-                var token = CreateToken(deviceId, audience, clientId, accountId, session, DateTime.Now.AddDays(TOKEN_EXPIRED_DAYS));
+                if (sessionService.TestSession(dbContext, this.GetHeaderDeviceId(), this.GetHeaderAccountId(), this.GetHeaderSession(), false) == null)
+                {
+                    return new ApiResult
+                    {
+                        code = this.SetResponseForbidden(),
+                        error = new ErrorResult { code = 404, msg = "Invalid Session" }
+                    };
+                }
+                var token = CreateToken(Startup.ValidIssuer, audience, DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS));
                 return new ApiResult
                 {
                     code = this.SetResponseOK(),
                     content = new
                     {
-                        AccountId = accountId,
+                        AccountId = this.GetHeaderAccountId(),
                         Token = token
                     }
                 };
@@ -154,51 +160,42 @@ namespace BTBaseAuth.Controllers.v1
             };
         }
 
-        private string CreateToken(string deviceId, string audience, string clientId, string accountId, string session, DateTime expireDate)
+        private string CreateToken(string issuer, string audience, DateTime expireDate)
         {
             SecurityKeychain signingKey;
+            if (string.IsNullOrWhiteSpace(audience))
+            {
+                throw new Exception("Null Audience Service");
+            }
+
+            var signingKeyName = Startup.GetAuthKeyName(audience);
             try
             {
-                signingKey = dbContext.SecurityKeychain.First(x => x.Name == Startup.SERVER_NAME);
+                signingKey = dbContext.SecurityKeychain.First(x => x.Name == signingKeyName);
             }
             catch (System.Exception)
             {
-                throw new Exception("No Audience Service");
+                throw new Exception($"No Security Key Of Audience:{audience}");
             }
 
-            var secretKey = new RsaSecurityKey(signingKey.ReadRSAParameters(true));
-            //var secretKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("a secret that needs to be at least 16 characters long"));
-            var notBefore = DateTime.Now;
-            var claims = new List<Claim>();
-            try
+            string algorithm = null;
+            switch (signingKey.Algorithm)
             {
-                var claimsArr = new Claim[]
-                {
-                    new Claim(ClaimTypes.NameIdentifier, accountId),
-                    new Claim(BTBaseServices.JWTClaimNames.DeviceIdentifier, deviceId),
-                    new Claim(BTBaseServices.JWTClaimNames.ClientUniqueId,clientId),
-                    new Claim(JwtRegisteredClaimNames.Aud, audience),
-                    new Claim(JwtRegisteredClaimNames.Sid, session)
-                };
-                claims.AddRange(claims);
+                case SecurityKeychainRSAExtensions.ALGORITHM_RSA: algorithm = SecurityAlgorithms.RsaSha256Signature; break;
+                case SecurityKeychainSymmetricsExtensions.ALGORITHM_SYMMETRIC: algorithm = SecurityAlgorithms.HmacSha256; break;
+                default: throw new Exception($"Unsupport Audience Security Key Algorithm:{signingKey.Algorithm}");
             }
-            catch (System.Exception)
+
+            var signingCredentials = new SigningCredentials(signingKey.GetSecurityKeys(true), algorithm);
+
+            var handler = new JwtSecurityTokenHandler();
+            return handler.CreateEncodedJwt(new SecurityTokenDescriptor
             {
-                throw new Exception("Token Claim Parameters Error");
-            }
-
-            var token = new JwtSecurityToken(
-                issuer: Startup.VALID_ISSUER,
-                audience: audience,
-                claims: claims,
-                notBefore: notBefore,
-                expires: expireDate,
-                //signingCredentials: new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256)
-                signingCredentials: new SigningCredentials(secretKey, SecurityAlgorithms.RsaSha256Signature)
-            );
-
-            string jwtToken = new JwtSecurityTokenHandler().WriteToken(token);
-            return jwtToken;
+                Issuer = Startup.ValidIssuer,
+                Audience = audience,
+                SigningCredentials = signingCredentials,
+                Expires = expireDate
+            });
         }
     }
 }
