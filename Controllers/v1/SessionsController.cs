@@ -107,7 +107,7 @@ namespace BTBaseAuth.Controllers.v1
                 return new ApiResult
                 {
                     code = this.SetResponseNotFound(),
-                    msg = "Validate Failed"
+                    error = new ErrorResult { code = 400, msg = "Validate Failed" }
                 };
             }
         }
