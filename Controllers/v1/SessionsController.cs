@@ -97,8 +97,8 @@ namespace BTBaseAuth.Controllers.v1
                 {
                     return new ApiResult
                     {
-                        code = this.SetResponseStatusCode(400),
-                        error = new ErrorResult { msg = ex.Message, code = 400 }
+                        code = this.SetResponseStatusCode(500),
+                        error = new ErrorResult { msg = ex.Message, code = 500 }
                     };
                 }
             }
