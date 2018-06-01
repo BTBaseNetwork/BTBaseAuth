@@ -65,8 +65,15 @@ namespace BTBaseAuth
                 app.UseDeveloperExceptionPage();
             }
             TryConnectDB(env.IsDevelopment());
+            TryCreateAudienceKey(app.ApplicationServices);
             app.UseAuthentication();
             app.UseMvc();
+        }
+
+        private void TryCreateAudienceKey(IServiceProvider serviceProvider)
+        {
+            var key = GetIssuerSigningKey(serviceProvider);
+            Console.WriteLine("Audience Key:" + key.Name);
         }
 
         private void TryConnectDB(bool isDevelopment)
@@ -97,7 +104,7 @@ namespace BTBaseAuth
                 jwtOptions.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = securityKey,
+                    IssuerSigningKey = securityKey.GetSecurityKeys(false),
                     ValidateAudience = true,
                     ValidAudience = AppName,
                     ValidateIssuer = true,
@@ -108,7 +115,7 @@ namespace BTBaseAuth
             });
         }
 
-        private SecurityKey GetIssuerSigningKey(IServiceProvider serviceProvider)
+        private SecurityKeychain GetIssuerSigningKey(IServiceProvider serviceProvider)
         {
             using (var sc = serviceProvider.CreateScope())
             {
@@ -116,7 +123,12 @@ namespace BTBaseAuth
                 SecurityKeychain signingKey;
                 try
                 {
-                    signingKey = dbContext.SecurityKeychain.First(x => x.Name == AppAuthKeyName);
+                    signingKey = dbContext.SecurityKeychain.FirstOrDefault(x => x.Name == AppAuthKeyName);
+                    if (signingKey == null || string.IsNullOrWhiteSpace(signingKey.Name))
+                    {
+                        Console.WriteLine("No Signing Key, Creating One...");
+                        throw new System.InvalidOperationException("No Signing Key");
+                    }
                 }
                 catch (System.InvalidOperationException)
                 {
@@ -125,8 +137,9 @@ namespace BTBaseAuth
                     var res = dbContext.SecurityKeychain.Add(signingKey);
                     signingKey = res.Entity;
                     dbContext.SaveChanges();
+                    Console.WriteLine("Signing Key Created:" + signingKey.Name);
                 }
-                return signingKey.GetSecurityKeys(false);
+                return signingKey;
             }
         }
     }
