@@ -64,19 +64,22 @@ namespace BTBaseAuth
             {
                 app.UseDeveloperExceptionPage();
             }
-            TryConnectDB();
+            TryConnectDB(env.IsDevelopment());
             app.UseAuthentication();
             app.UseMvc();
         }
 
-        private void TryConnectDB()
+        private void TryConnectDB(bool isDevelopment)
         {
             using (var sc = ApplicationBuilder.ApplicationServices.CreateScope())
             {
                 try
                 {
                     var dbContext = sc.ServiceProvider.GetService<BTBaseDbContext>();
-                    dbContext.Database.EnsureCreated();
+                    if (isDevelopment)
+                    {
+                        dbContext.Database.EnsureCreated();
+                    }
                     Console.WriteLine("Connect DB Success");
                 }
                 catch (System.Exception ex)
