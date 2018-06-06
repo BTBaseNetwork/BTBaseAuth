@@ -43,7 +43,7 @@ namespace BTBaseAuth.Controllers.v1
                 return new ApiResult
                 {
                     code = this.SetResponseNotFound(),
-                    msg = "Device Is Logout"
+                    error = new ErrorResult { msg = "Device Is Logout", code = 404 }
                 };
             }
             else
