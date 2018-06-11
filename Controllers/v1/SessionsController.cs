@@ -60,7 +60,6 @@ namespace BTBaseAuth.Controllers.v1
         [HttpPost]
         public object Login(string userstring, string password, string audience)
         {
-
             var account = accountService.ValidateProfile(dbContext, userstring, password);
 
             if (account != null)
@@ -78,8 +77,10 @@ namespace BTBaseAuth.Controllers.v1
                 var logoutDevices = sessionService.InvalidSessionAccountLimited(dbContext, account.AccountId, 5);
                 try
                 {
-                    var sessionToken = CreateToken(Startup.ValidIssuer, Startup.AppName, DateTime.Now.AddDays(SESSION_TOKEN_EXPIRED_DAYS));
-                    var audienceToken = CreateToken(Startup.ValidIssuer, audience, DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS));
+                    var sessionTokenExpiredOn = DateTime.Now.AddDays(SESSION_TOKEN_EXPIRED_DAYS);
+                    var sessionToken = CreateToken(Startup.ValidIssuer, Startup.AppName, sessionTokenExpiredOn);
+                    var audienceTokenExpiredOn = DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS);
+                    var audienceToken = CreateToken(Startup.ValidIssuer, audience, audienceTokenExpiredOn);
                     return new ApiResult
                     {
                         code = this.SetResponseOK(),
@@ -126,14 +127,16 @@ namespace BTBaseAuth.Controllers.v1
                         error = new ErrorResult { code = 404, msg = "Invalid Session" }
                     };
                 }
-                var token = CreateToken(Startup.ValidIssuer, audience, DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS));
+                var expiredOnDate = DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS);
+                var token = CreateToken(Startup.ValidIssuer, audience, expiredOnDate);
                 return new ApiResult
                 {
                     code = this.SetResponseOK(),
                     content = new
                     {
                         AccountId = this.GetHeaderAccountId(),
-                        Token = token
+                        Token = token,
+                        ExpiredOn = BahamutCommon.Utils.DateTimeUtil.UnixTimeSpanOfDateTime(expiredOnDate).TotalSeconds
                     }
                 };
             }
