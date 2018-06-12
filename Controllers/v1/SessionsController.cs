@@ -21,8 +21,8 @@ namespace BTBaseAuth.Controllers.v1
         private readonly BTBaseDbContext dbContext;
         private readonly SessionService sessionService;
         private readonly AccountService accountService;
-        private readonly double SESSION_TOKEN_EXPIRED_DAYS = 60;
-        private readonly double AUDIENCE_TOKEN_EXPIRED_DAYS = 7;
+        private double SESSION_TOKEN_EXPIRY_MINUTES => double.Parse(Environment.GetEnvironmentVariable("SESSION_TOKEN_EXPIRY_MINUTES"));
+        private double AUDIENCE_TOKEN_EXPIRY_MINUTES => double.Parse(Environment.GetEnvironmentVariable("AUDIENCE_TOKEN_EXPIRY_MINUTES"));
 
         public SessionsController(BTBaseDbContext dbContext, SessionService sessionService, AccountService accountService)
         {
@@ -77,9 +77,9 @@ namespace BTBaseAuth.Controllers.v1
                 var logoutDevices = sessionService.InvalidSessionAccountLimited(dbContext, account.AccountId, 5);
                 try
                 {
-                    var sessionTokenExpires = DateTime.Now.AddDays(SESSION_TOKEN_EXPIRED_DAYS);
+                    var sessionTokenExpires = DateTime.Now.AddMinutes(SESSION_TOKEN_EXPIRY_MINUTES);
                     var sessionToken = CreateToken(Startup.ValidIssuer, Startup.AppName, sessionTokenExpires);
-                    var audienceTokenExpires = DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS);
+                    var audienceTokenExpires = DateTime.Now.AddMinutes(AUDIENCE_TOKEN_EXPIRY_MINUTES);
                     var audienceToken = CreateToken(Startup.ValidIssuer, audience, audienceTokenExpires);
                     return new ApiResult
                     {
@@ -129,7 +129,7 @@ namespace BTBaseAuth.Controllers.v1
                         error = new ErrorResult { code = 404, msg = "Invalid Session" }
                     };
                 }
-                var expires = DateTime.Now.AddDays(AUDIENCE_TOKEN_EXPIRED_DAYS);
+                var expires = DateTime.Now.AddMinutes(AUDIENCE_TOKEN_EXPIRY_MINUTES);
                 var token = CreateToken(Startup.ValidIssuer, audience, expires);
                 return new ApiResult
                 {
@@ -138,7 +138,7 @@ namespace BTBaseAuth.Controllers.v1
                     {
                         AccountId = this.GetHeaderAccountId(),
                         Token = token,
-                        Expires = BahamutCommon.Utils.DateTimeUtil.UnixTimeSpanOfDateTime(expires).TotalSeconds
+                        Expires = (long)BahamutCommon.Utils.DateTimeUtil.UnixTimeSpanOfDateTime(expires).TotalSeconds
                     }
                 };
             }
@@ -147,7 +147,7 @@ namespace BTBaseAuth.Controllers.v1
                 return new ApiResult
                 {
                     code = this.SetResponseForbidden(),
-                    error = new ErrorResult { code = 404, msg = ex.Message }
+                    error = new ErrorResult { code = 403, msg = ex.Message }
                 };
             }
         }

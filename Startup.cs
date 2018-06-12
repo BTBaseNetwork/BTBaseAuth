@@ -25,7 +25,6 @@ namespace BTBaseAuth
         public static string GetAuthKeyName(string audience) => $"auth_key_{audience.ToLower()}";
         public static readonly string AppAuthKeyName = GetAuthKeyName(AppName);
 
-
         public IConfiguration Configuration { get; private set; }
         public IServiceCollection ServiceCollection { get; private set; }
         public IApplicationBuilder ApplicationBuilder { get; set; }
@@ -54,6 +53,7 @@ namespace BTBaseAuth
                 builder.UseMySQL(Environment.GetEnvironmentVariable("MYSQL_CONSTR"));
             });
             AddAuthentication(services);
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
