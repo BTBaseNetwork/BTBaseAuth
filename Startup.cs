@@ -50,7 +50,8 @@ namespace BTBaseAuth
             services.AddSingleton<SessionService>();
             services.AddDbContextPool<BTBaseDbContext>(builder =>
             {
-                builder.UseMySQL(Environment.GetEnvironmentVariable("MYSQL_CONSTR"));
+                var constr = Environment.GetEnvironmentVariable("MYSQL_CONSTR");
+                builder.UseMySql(constr, null);
             });
             AddAuthentication(services);
 
